@@ -17,11 +17,52 @@ import {
   HomeIcon,
   SearchIcon,
 } from "@heroicons/react/solid";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { getCsrfToken, signIn, useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 
+import { SiweMessage } from "siwe";
+import { useAccount, useConnect, useNetwork, useSignMessage } from "wagmi";
+
 function Header() {
-  const { data: session } = useSession();
+  const session = useSession();
+
+  // Wagmi hooks to interact with Metamask
+  const [{ data: connectData }, connectAsync] = useConnect();
+  const [, signMessage] = useSignMessage();
+
+  const handleLogin = async () => {
+    try {
+      const res = await connectAsync(connectData.connectors[0]);
+      const callbackUrl = "/protected";
+      const message = new SiweMessage({
+        domain: window.location.host,
+        address: res.data?.account,
+        statement: "Sign in with Ethereum to the app.",
+        uri: window.location.origin,
+        version: "1",
+        chainId: res.data?.chain?.id,
+        nonce: await getCsrfToken(),
+      });
+      const { data: signature, error } = await signMessage({
+        message: message.prepareMessage(),
+      });
+      signIn("credentials", {
+        message: JSON.stringify(message),
+        redirect: false,
+        signature,
+        callbackUrl,
+      });
+    } catch (error) {
+      window.alert(error);
+    }
+  };
+
+  const handleLogout = async () => {
+    signOut({ redirect: false });
+  };
+
+  const ethereumPresent = typeof window !== "undefined" && !!window.ethereum;
+
   return (
     <div className="sticky top-0 z-50 flex bg-white px-4 py-2 shadow-sm items-center">
       <div className="relative h-10 w-20 flex-shrink-0 cursor-pointer">
@@ -68,7 +109,9 @@ function Header() {
       {/* SIgn in / Sign out button */}
       {session ? (
         <div
-          onClick={() => signOut()}
+          onClick={
+            session.status === "authenticated" ? handleLogout : handleLogin
+          }
           className="hidden cursor-pointer lg:flex items-center space-x-2 p-2 border-gray-100"
         >
           <div className="relative h-5 w-5 flex-shrink-0">
@@ -88,7 +131,9 @@ function Header() {
         </div>
       ) : (
         <div
-          onClick={() => signIn()}
+          onClick={
+            session.status === "authenticated" ? handleLogout : handleLogin
+          }
           className="hidden cursor-pointer lg:flex items-center space-x-2 p-2 border-gray-100"
         >
           <div className="relative h-5 w-5 flex-shrink-0">
